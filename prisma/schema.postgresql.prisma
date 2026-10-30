@@ -1,0 +1,366 @@
+// PostgreSQL Production Schema for ScamTrace
+// Use with Docker Compose or Managed PostgreSQL (see README.md)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String              @id @default(cuid())
+  email            String              @unique
+  fullName         String
+  passwordHash     String
+  role             String              @default("INVESTIGATOR")
+  department       String              @default("Threat Operations")
+  avatarColor      String              @default("#4F46E5")
+  isActive         Boolean             @default(true)
+  notifyHighRisk   Boolean             @default(true)
+  notifyCaseAssign Boolean             @default(true)
+  notifyEvidence   Boolean             @default(true)
+  notifyRules      Boolean             @default(false)
+  themePreference  String              @default("light")
+  lastLoginAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  assignedCases    InvestigationCase[] @relation("AssignedInvestigator")
+  createdReports   ScamReport[]        @relation("ReportCreator")
+  uploadedEvidence Evidence[]          @relation("EvidenceUploader")
+  auditLogs        AuditLog[]
+  caseNotes        CaseNote[]
+  analysisResults  AnalysisResult[]
+  alerts           Alert[]
+
+  @@index([role])
+  @@index([email])
+}
+
+model InvestigationCase {
+  id                String       @id
+  caseNumber        String       @unique
+  title             String
+  description       String
+  category          String
+  priority          String
+  riskLevel         String
+  riskScore         Int
+  status            String
+  assignedToId      String?
+  assignedTo        User?        @relation("AssignedInvestigator", fields: [assignedToId], references: [id], onDelete: SetNull)
+  resolutionSummary String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  reports           ScamReport[]
+  evidence          Evidence[]
+  notes             CaseNote[]
+  indicators        Indicator[]
+
+  @@index([status])
+  @@index([riskLevel])
+  @@index([priority])
+  @@index([assignedToId])
+  @@index([createdAt])
+}
+
+model ScamReport {
+  id                      String             @id
+  reportNumber            String             @unique
+  title                   String
+  category                String
+  description             String
+  submittedIndicatorValue String
+  submittedIndicatorType  String
+  riskLevel               String
+  riskScore               Int
+  status                  String
+  reporterChannel         String             @default("WEB_PORTAL")
+  detectionExplanation    String
+  triggeredRulesJson      String
+  financialLossAmount     Float              @default(0)
+  currency                String             @default("USD")
+  caseId                  String?
+  investigationCase       InvestigationCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  indicatorId             String?
+  indicator               Indicator?         @relation(fields: [indicatorId], references: [id], onDelete: SetNull)
+  createdById             String?
+  createdBy               User?              @relation("ReportCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([category])
+  @@index([riskLevel])
+  @@index([status])
+  @@index([caseId])
+  @@index([indicatorId])
+  @@index([createdAt])
+}
+
+model Indicator {
+  id                      String             @id
+  value                   String             @unique
+  normalizedValue         String
+  type                    String
+  category                String
+  riskScore               Int
+  riskLevel               String
+  confidenceScore         Int                @default(85)
+  status                  String             @default("ACTIVE")
+  summaryReason           String
+  technicalAttributesJson String
+  sourceClassification    String             @default("SYNTHETIC_SEED")
+  associationCount        Int                @default(1)
+  firstSeenAt             DateTime           @default(now())
+  lastSeenAt              DateTime           @default(now())
+  caseId                  String?
+  investigationCase       InvestigationCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  threatPatternId         String?
+  threatPattern           ThreatPattern?     @relation(fields: [threatPatternId], references: [id], onDelete: SetNull)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  reports                 ScamReport[]
+  transactions            TransactionEvent[]
+  messageSamples          MessageSample[]
+
+  @@index([type])
+  @@index([riskLevel])
+  @@index([category])
+  @@index([caseId])
+  @@index([riskScore])
+}
+
+model MessageSample {
+  id                      String     @id
+  sampleCode              String     @unique
+  channel                 String
+  senderIdentifier        String
+  subject                 String?
+  content                 String
+  category                String
+  riskScore               Int
+  riskLevel               String
+  extractedIndicatorsJson String
+  linguisticSignalsJson   String
+  explanation             String
+  indicatorId             String?
+  indicator               Indicator? @relation(fields: [indicatorId], references: [id], onDelete: SetNull)
+  createdAt               DateTime   @default(now())
+
+  @@index([category])
+  @@index([riskLevel])
+  @@index([channel])
+}
+
+model TransactionEvent {
+  id                  String     @id
+  referenceId         String     @unique
+  paymentRail         String
+  senderHandle        String
+  receiverHandle      String
+  merchantDisplayName String
+  amount              Float
+  currency            String     @default("USD")
+  riskScore           Int
+  riskLevel           String
+  status              String
+  scamCategory        String
+  anomalyFlagsJson    String
+  explanation         String
+  indicatorId         String?
+  indicator           Indicator? @relation(fields: [indicatorId], references: [id], onDelete: SetNull)
+  caseId              String?
+  createdAt           DateTime   @default(now())
+
+  @@index([paymentRail])
+  @@index([riskLevel])
+  @@index([scamCategory])
+}
+
+model Evidence {
+  id                  String            @id
+  evidenceCode        String            @unique
+  title               String
+  type                String
+  description         String
+  fileName            String
+  mimeType            String
+  fileSizeBytes       Int
+  sha256Hash          String
+  storageMode         String            @default("metadata-local")
+  verificationStatus  String            @default("VERIFIED")
+  chainOfCustodyNotes String
+  caseId              String
+  investigationCase   InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  reportId            String?
+  uploadedById        String?
+  uploadedBy          User?             @relation("EvidenceUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt           DateTime          @default(now())
+
+  @@index([caseId])
+  @@index([type])
+  @@index([verificationStatus])
+}
+
+model ThreatPattern {
+  id                   String      @id
+  code                 String      @unique
+  name                 String
+  category             String
+  severity             String
+  description          String
+  commonTacticsJson    String
+  targetPersona        String
+  detectionCount       Int
+  weeklyGrowthPct      Float
+  confidenceLimitation String
+  sourceLabel          String      @default("Synthetic Intelligence Corpus v2.4")
+  isEmerging           Boolean     @default(false)
+  firstObservedAt      DateTime    @default(now())
+  lastObservedAt       DateTime    @default(now())
+  indicators           Indicator[]
+
+  @@index([category])
+  @@index([severity])
+}
+
+model DetectionRule {
+  id                  String            @id
+  code                String            @unique
+  name                String
+  description         String
+  category            String
+  targetTypes         String
+  severity            String
+  scoreWeight         Int
+  maxWeight           Int               @default(45)
+  isActive            Boolean           @default(true)
+  matchCount          Int               @default(0)
+  precisionEstimate   Float             @default(0.89)
+  patternConfigJson   String
+  explanationTemplate String
+  lastTriggeredAt     DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  factors             DetectionFactor[]
+
+  @@index([category])
+  @@index([isActive])
+}
+
+model AnalysisResult {
+  id                      String            @id
+  inputType               String
+  rawInput                String
+  normalizedInput         String
+  riskScore               Int
+  riskLevel               String
+  heuristicConfidence     Int
+  verdictSummary          String
+  detailedExplanation     String
+  extractedIndicatorsJson String
+  recommendedActionsJson  String
+  limitationsJson         String
+  engineVersion           String            @default("ScamTrace Explainable Engine v2.4 (Rule-Based)")
+  userId                  String?
+  user                    User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt               DateTime          @default(now())
+  factors                 DetectionFactor[]
+
+  @@index([inputType])
+  @@index([riskLevel])
+  @@index([createdAt])
+}
+
+model DetectionFactor {
+  id                String         @id @default(cuid())
+  analysisId        String
+  analysis          AnalysisResult @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  ruleId            String?
+  rule              DetectionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  ruleCode          String
+  factorName        String
+  category          String
+  severity          String
+  scoreContribution Int
+  matchedEvidence   String
+  explanation       String
+  createdAt         DateTime       @default(now())
+
+  @@index([analysisId])
+  @@index([ruleId])
+}
+
+model EntityRelationship {
+  id               String   @id
+  sourceType       String
+  sourceId         String
+  sourceLabel      String
+  sourceRiskLevel  String
+  targetType       String
+  targetId         String
+  targetLabel      String
+  targetRiskLevel  String
+  relationshipType String
+  evidenceSummary  String
+  weight           Float    @default(1.0)
+  createdAt        DateTime @default(now())
+
+  @@index([sourceId])
+  @@index([targetId])
+  @@index([relationshipType])
+}
+
+model CaseNote {
+  id                String            @id @default(cuid())
+  caseId            String
+  investigationCase InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId          String?
+  author            User?             @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorName        String
+  noteType          String            @default("ANALYST_NOTE")
+  content           String
+  createdAt         DateTime          @default(now())
+
+  @@index([caseId])
+}
+
+model Alert {
+  id              String   @id
+  title           String
+  message         String
+  category        String
+  severity        String
+  isRead          Boolean  @default(false)
+  actionUrl       String?
+  relatedEntityId String?
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@index([isRead])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  action       String
+  actorId      String?
+  actor        User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail   String
+  actorRole    String
+  targetType   String
+  targetId     String
+  summary      String
+  metadataJson String?
+  ipAddress    String   @default("127.0.0.1")
+  createdAt    DateTime @default(now())
+
+  @@index([action])
+  @@index([actorId])
+  @@index([createdAt])
+}
+

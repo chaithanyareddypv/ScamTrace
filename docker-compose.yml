@@ -1,0 +1,41 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: scamtrace-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: scamtrace
+      POSTGRES_PASSWORD: scamtrace_dev_password
+      POSTGRES_DB: scamtrace_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - scamtrace_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U scamtrace -d scamtrace_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scamtrace-app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: 'postgresql://scamtrace:scamtrace_dev_password@postgres:5432/scamtrace_db?schema=public'
+      SESSION_SECRET: 'change-this-to-a-secure-32-byte-secret-in-production'
+      NEXT_PUBLIC_APP_URL: 'http://localhost:3000'
+      NODE_ENV: 'production'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  scamtrace_pgdata:
+
